@@ -3,7 +3,7 @@ schemas.py — Pydantic models shared across routers and services.
 """
 
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Optional, Literal, Dict
 
 
 # ---------- User / Health Profile ----------
@@ -40,6 +40,32 @@ class FoodAnalysisResponse(BaseModel):
     items: list[FoodItem]
     total_calories: int
     explanation: str        # friendly summary
+
+
+# ---------- Prescription Analysis ----------
+
+class MedicineItem(BaseModel):
+    name: str
+    dosage: str
+    frequency: str
+    duration: str
+
+
+class PrescriptionResult(BaseModel):
+    medicines: list[MedicineItem]
+    safety_warnings: list[str]
+    cost_estimate: Dict[str, float]   # medicine_name → estimated price (USD)
+    ocr_text: str
+    explanation: str
+
+
+# ---------- Unified Analyze ----------
+
+class AnalyzeResponse(BaseModel):
+    analysis_type: Literal["food", "prescription", "unknown"]
+    food_result: Optional[FoodAnalysisResponse] = None
+    prescription_result: Optional[PrescriptionResult] = None
+    explanation: str
 
 
 # ---------- Travel / Activity Risk ----------
