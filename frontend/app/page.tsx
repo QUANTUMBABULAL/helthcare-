@@ -6,8 +6,9 @@ import HealthProfileForm, {
   DEFAULT_HEALTH,
 } from "@/components/HealthProfileForm";
 import FoodResult from "@/components/FoodResult";
+import PrescriptionResult from "@/components/PrescriptionResult";
 import TravelResult from "@/components/TravelResult";
-import { analyzeFoodImage, assessTravelRisk } from "@/lib/api";
+import { analyzeImage, assessTravelRisk } from "@/lib/api";
 
 // ---------- Message types for the chat ----------
 type Message = {
@@ -15,7 +16,7 @@ type Message = {
   role: "user" | "assistant";
   text?: string;
   imageUrl?: string;
-  foodData?: any;
+  analyzeData?: any;   // unified /api/analyze response
   travelData?: any;
 };
 
@@ -24,13 +25,12 @@ export default function HomePage() {
     {
       id: 0,
       role: "assistant",
-      text: "Hi! I'm your AI Health Companion. You can:\n- Upload a food photo for calorie & risk analysis\n- Ask me about travel/activity safety (e.g. \"Can I fly?\", \"Is scuba diving safe?\")\n\nTap the profile icon to set up your health profile first.",
+      text: "Hi! I'm your AI Health Companion.\n\nUpload any image — food photo or prescription — and I'll analyze it for you. You can also add a message to give me more context.\n\nTap the profile icon to set your health details first.",
     },
   ]);
   const [input, setInput] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [foodHint, setFoodHint] = useState("");
   const [health, setHealth] = useState<HealthData>(DEFAULT_HEALTH);
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -61,7 +61,6 @@ export default function HomePage() {
   const clearImage = () => {
     setImageFile(null);
     setImagePreview(null);
-    setFoodHint("");
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -70,17 +69,17 @@ export default function HomePage() {
     if (loading) return;
     if (!input.trim() && !imageFile) return;
 
-    // If an image is attached, do food analysis
+    // If an image is attached, use the unified /api/analyze endpoint
     if (imageFile) {
-      const hint = foodHint.trim();
-      addMsg({ role: "user", text: hint || "Analyze this food", imageUrl: imagePreview! });
+      const userText = input.trim();
+      addMsg({ role: "user", text: userText || "Analyze this image", imageUrl: imagePreview! });
       clearImage();
       setInput("");
       setLoading(true);
 
       try {
-        const data = await analyzeFoodImage(imageFile, health, hint);
-        addMsg({ role: "assistant", foodData: data });
+        const data = await analyzeImage(imageFile, health, userText || undefined);
+        addMsg({ role: "assistant", analyzeData: data });
       } catch (err: any) {
         addMsg({ role: "assistant", text: `Error: ${err.message}` });
       } finally {
@@ -105,13 +104,35 @@ export default function HomePage() {
     }
   };
 
+  // ---------- Render assistant message content ----------
+  const renderAssistantContent = (msg: Message) => {
+    if (msg.analyzeData) {
+      const d = msg.analyzeData;
+      if (d.type === "food" && d.food_data) {
+        return <FoodResult data={d.food_data} />;
+      }
+      if (d.type === "prescription" && d.prescription_data) {
+        return <PrescriptionResult data={d.prescription_data} />;
+      }
+      // unknown or message-only
+      return (
+        <p className="text-sm whitespace-pre-wrap">
+          {d.message || "I couldn't identify the image clearly. Please try again with a clearer photo."}
+        </p>
+      );
+    }
+    if (msg.travelData) return <TravelResult data={msg.travelData} />;
+    if (msg.text) return <p className="text-sm whitespace-pre-wrap">{msg.text}</p>;
+    return null;
+  };
+
   return (
     <div className="flex flex-col h-screen max-w-2xl mx-auto">
       {/* ---- Header ---- */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
         <div>
           <h1 className="text-lg font-bold tracking-tight">AI Health Companion</h1>
-          <p className="text-xs text-gray-500">Food analysis & travel risk advisor</p>
+          <p className="text-xs text-gray-500">Upload any image · food or prescription</p>
         </div>
         <button
           onClick={() => setShowProfile(true)}
@@ -145,18 +166,14 @@ export default function HomePage() {
               {msg.imageUrl && (
                 <img
                   src={msg.imageUrl}
-                  alt="uploaded food"
+                  alt="uploaded"
                   className="rounded-lg mb-2 max-h-48 object-cover"
                 />
               )}
-              {/* Text */}
-              {msg.text && (
+              {msg.role === "user" && msg.text && (
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
               )}
-              {/* Food result */}
-              {msg.foodData && <FoodResult data={msg.foodData} />}
-              {/* Travel result */}
-              {msg.travelData && <TravelResult data={msg.travelData} />}
+              {msg.role === "assistant" && renderAssistantContent(msg)}
             </div>
           </div>
         ))}
@@ -164,7 +181,7 @@ export default function HomePage() {
         {loading && (
           <div className="flex justify-start">
             <div className="bg-gray-800/60 border border-gray-700/40 rounded-2xl px-4 py-3">
-              <p className="text-sm text-gray-400 animate-pulse">Thinking...</p>
+              <p className="text-sm text-gray-400 animate-pulse">Analyzing...</p>
             </div>
           </div>
         )}
@@ -174,34 +191,19 @@ export default function HomePage() {
 
       {/* ---- Image preview bar ---- */}
       {imagePreview && (
-        <div className="px-4 py-2 border-t border-gray-800 space-y-2">
-          <div className="flex items-center gap-3">
+        <div className="px-4 py-2 border-t border-gray-800 flex items-center gap-3">
           <img
             src={imagePreview}
             alt="preview"
             className="h-12 w-12 rounded-lg object-cover"
           />
-          <span className="text-xs text-gray-400 flex-1">Image attached</span>
+          <span className="text-xs text-gray-400 flex-1">Image attached — AI will identify it</span>
           <button
             onClick={clearImage}
             className="text-red-400 text-xs hover:text-red-300"
           >
             Remove
           </button>
-          </div>
-          <div>
-            <label htmlFor="food-hint" className="block text-xs text-gray-400 mb-1">
-              Describe your food (optional)
-            </label>
-            <input
-              id="food-hint"
-              className="w-full bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:outline-none focus:border-emerald-500 transition"
-              placeholder="e.g., Homemade chocolate cupcake"
-              value={foodHint}
-              onChange={(e) => setFoodHint(e.target.value)}
-              disabled={loading}
-            />
-          </div>
         </div>
       )}
 
@@ -218,9 +220,8 @@ export default function HomePage() {
         <button
           onClick={() => fileRef.current?.click()}
           className="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg p-2 transition"
-          title="Upload food image"
+          title="Upload image"
         >
-          {/* Camera / image icon (inline SVG) */}
           <svg
             xmlns="http://www.w3.org/2000/svg"
             className="h-5 w-5 text-gray-400"
@@ -241,7 +242,7 @@ export default function HomePage() {
           className="flex-1 bg-gray-800 rounded-lg px-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-emerald-500 transition"
           placeholder={
             imageFile
-              ? "Add a note (optional) and send..."
+              ? "Optional: describe the image or add context..."
               : "Ask about travel safety (e.g. Can I fly?)"
           }
           value={input}

@@ -42,6 +42,33 @@ class FoodAnalysisResponse(BaseModel):
     explanation: str        # friendly summary
 
 
+# ---------- Prescription Analysis ----------
+
+class MedicineItem(BaseModel):
+    name: str
+    dosage: str
+    frequency: str
+    estimated_cost: str
+    warnings: list[str]
+
+
+class PrescriptionAnalysisResponse(BaseModel):
+    raw_text: str
+    medicines: list[MedicineItem]
+    safety_notes: list[str]
+    explanation: str
+
+
+# ---------- Unified Analyze ----------
+
+class AnalyzeResponse(BaseModel):
+    type: Literal["food", "prescription", "unknown"]
+    confidence: float
+    food_data: Optional[FoodAnalysisResponse] = None
+    prescription_data: Optional[PrescriptionAnalysisResponse] = None
+    message: Optional[str] = None
+
+
 # ---------- Travel / Activity Risk ----------
 
 class TravelRiskRequest(BaseModel):
