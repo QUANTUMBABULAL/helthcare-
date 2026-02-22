@@ -81,3 +81,14 @@ class PrescriptionAnalysisResponse(BaseModel):
     total_estimated_cost: float
     warnings: list[str]
     disclaimer: str
+
+
+# ---------- Unified Analysis ----------
+
+class AnalyzeResponse(BaseModel):
+    """Unified response for POST /api/analyze."""
+    response_type: Literal["food", "prescription", "unknown"]
+    confidence: float
+    food: Optional[FoodAnalysisResponse] = None
+    prescription: Optional[PrescriptionAnalysisResponse] = None
+    message: Optional[str] = None

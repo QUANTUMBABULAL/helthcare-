@@ -9,7 +9,7 @@ load_dotenv()  # ✅ MUST be first
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import food, travel, user, prescription
+from routers import food, travel, user, prescription, analyze
 
 app = FastAPI(
     title="AI Health Risk & Lifestyle Companion",
@@ -29,6 +29,7 @@ app.include_router(food.router, prefix="/api")
 app.include_router(travel.router, prefix="/api")
 app.include_router(user.router, prefix="/api")
 app.include_router(prescription.router, prefix="/api")
+app.include_router(analyze.router, prefix="/api")
 
 
 @app.get("/")

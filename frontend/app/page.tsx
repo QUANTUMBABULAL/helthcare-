@@ -5,10 +5,9 @@ import HealthProfileForm, {
   HealthData,
   DEFAULT_HEALTH,
 } from "@/components/HealthProfileForm";
-import FoodResult from "@/components/FoodResult";
+import AnalyzeResult from "@/components/AnalyzeResult";
 import TravelResult from "@/components/TravelResult";
-import PrescriptionResult from "@/components/PrescriptionResult";
-import { analyzeFoodImage, analyzePrescription, assessTravelRisk } from "@/lib/api";
+import { analyzeImage, assessTravelRisk } from "@/lib/api";
 
 // ---------- Message types for the chat ----------
 type Message = {
@@ -16,7 +15,7 @@ type Message = {
   role: "user" | "assistant";
   text?: string;
   imageUrl?: string;
-  foodData?: any;
+  analyzeData?: any;
   travelData?: any;
 };
 
@@ -25,29 +24,20 @@ export default function HomePage() {
     {
       id: 0,
       role: "assistant",
-      text: "Hi! I'm your AI Health Companion. You can:\n- Upload a food photo for calorie & risk analysis\n- Ask me about travel/activity safety (e.g. \"Can I fly?\", \"Is scuba diving safe?\")\n\nTap the profile icon to set up your health profile first.",
+      text: "Hi! I'm your AI Health Companion.\n\nUpload any image — food, prescription, or anything health-related — add an optional message, and I'll analyze it for you.\n\nYou can also ask me about travel or activity safety (e.g. \"Can I fly?\").\n\nTap the ⚙ icon to set up your health profile first.",
     },
   ]);
   const [input, setInput] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [foodHint, setFoodHint] = useState("");
   const [health, setHealth] = useState<HealthData>(DEFAULT_HEALTH);
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
-  const [prescriptionPreview, setPrescriptionPreview] = useState<string | null>(null);
-  const [prescriptionLocation, setPrescriptionLocation] = useState("");
-  const [prescriptionLoading, setPrescriptionLoading] = useState(false);
-  const [prescriptionData, setPrescriptionData] = useState<any | null>(null);
-  const [prescriptionError, setPrescriptionError] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const prescriptionFileRef = useRef<HTMLInputElement>(null);
-  let nextId = useRef(1);
+  const nextId = useRef(1);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -58,7 +48,6 @@ export default function HomePage() {
     return m;
   };
 
-  // ---------- Handle image selection ----------
   const onImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -69,61 +58,24 @@ export default function HomePage() {
   const clearImage = () => {
     setImageFile(null);
     setImagePreview(null);
-    setFoodHint("");
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const onPrescriptionSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPrescriptionFile(file);
-    setPrescriptionPreview(URL.createObjectURL(file));
-    setPrescriptionError(null);
-  };
-
-  const clearPrescription = () => {
-    setPrescriptionFile(null);
-    setPrescriptionPreview(null);
-    if (prescriptionFileRef.current) prescriptionFileRef.current.value = "";
-  };
-
-  const handlePrescriptionCheck = async () => {
-    if (prescriptionLoading || !prescriptionFile) return;
-    setPrescriptionLoading(true);
-    setPrescriptionError(null);
-
-    try {
-      const data = await analyzePrescription(
-        prescriptionFile,
-        health,
-        prescriptionLocation.trim() || undefined
-      );
-      setPrescriptionData(data);
-    } catch (err: any) {
-      setPrescriptionError(err.message || "Failed to analyze prescription.");
-    } finally {
-      setPrescriptionLoading(false);
-    }
-  };
-
-  // ---------- Send handler ----------
   const handleSend = async () => {
     if (loading) return;
     if (!input.trim() && !imageFile) return;
 
-    // If an image is attached, do food analysis
+    // Image attached → unified AI analysis
     if (imageFile) {
-      const inlineHint = input.trim();
-      const panelHint = foodHint.trim();
-      const hint = panelHint || inlineHint;
-      addMsg({ role: "user", text: hint || "Analyze this food", imageUrl: imagePreview! });
+      const userText = input.trim();
+      addMsg({ role: "user", text: userText || undefined, imageUrl: imagePreview! });
       clearImage();
       setInput("");
       setLoading(true);
 
       try {
-        const data = await analyzeFoodImage(imageFile, health, hint);
-        addMsg({ role: "assistant", foodData: data });
+        const data = await analyzeImage(imageFile, health, userText || undefined);
+        addMsg({ role: "assistant", analyzeData: data });
       } catch (err: any) {
         addMsg({ role: "assistant", text: `Error: ${err.message}` });
       } finally {
@@ -132,7 +84,7 @@ export default function HomePage() {
       return;
     }
 
-    // Otherwise treat as a travel/activity risk query
+    // Text-only → travel / activity risk
     const userText = input.trim();
     addMsg({ role: "user", text: userText });
     setInput("");
@@ -154,7 +106,7 @@ export default function HomePage() {
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
         <div>
           <h1 className="text-lg font-bold tracking-tight">AI Health Companion</h1>
-          <p className="text-xs text-gray-500">Food analysis & travel risk advisor</p>
+          <p className="text-xs text-gray-500">Upload any image · I'll figure it out</p>
         </div>
         <button
           onClick={() => setShowProfile(true)}
@@ -172,63 +124,6 @@ export default function HomePage() {
 
       {/* ---- Chat area ---- */}
       <div className="flex-1 overflow-y-auto chat-scroll px-4 py-4 space-y-4">
-        {/* ---- Prescription Check ---- */}
-        <div className="bg-gray-800/50 border border-gray-700/50 rounded-2xl p-4 space-y-3">
-          <h2 className="text-sm font-semibold">🧾 Prescription Check</h2>
-
-          <input
-            ref={prescriptionFileRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={onPrescriptionSelect}
-          />
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => prescriptionFileRef.current?.click()}
-              className="bg-gray-900 hover:bg-gray-700 border border-gray-700 rounded-lg px-3 py-2 text-xs transition"
-            >
-              Upload prescription image
-            </button>
-            {prescriptionFile && (
-              <button
-                onClick={clearPrescription}
-                className="text-red-400 text-xs hover:text-red-300"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-
-          {prescriptionPreview && (
-            <img
-              src={prescriptionPreview}
-              alt="prescription preview"
-              className="rounded-lg max-h-40 object-cover"
-            />
-          )}
-
-          <input
-            className="w-full bg-gray-900 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:outline-none focus:border-emerald-500 transition"
-            placeholder="Location (optional, for pricing context)"
-            value={prescriptionLocation}
-            onChange={(e) => setPrescriptionLocation(e.target.value)}
-            disabled={prescriptionLoading}
-          />
-
-          <button
-            onClick={handlePrescriptionCheck}
-            disabled={!prescriptionFile || prescriptionLoading}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition"
-          >
-            {prescriptionLoading ? "Analyzing..." : "Analyze Prescription"}
-          </button>
-
-          {prescriptionError && <p className="text-xs text-red-400">{prescriptionError}</p>}
-          {prescriptionData && <PrescriptionResult data={prescriptionData} />}
-        </div>
-
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -241,21 +136,17 @@ export default function HomePage() {
                   : "bg-gray-800/60 border border-gray-700/40"
               }`}
             >
-              {/* User image preview */}
               {msg.imageUrl && (
                 <img
                   src={msg.imageUrl}
-                  alt="uploaded food"
+                  alt="uploaded"
                   className="rounded-lg mb-2 max-h-48 object-cover"
                 />
               )}
-              {/* Text */}
               {msg.text && (
                 <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
               )}
-              {/* Food result */}
-              {msg.foodData && <FoodResult data={msg.foodData} />}
-              {/* Travel result */}
+              {msg.analyzeData && <AnalyzeResult data={msg.analyzeData} />}
               {msg.travelData && <TravelResult data={msg.travelData} />}
             </div>
           </div>
@@ -264,7 +155,7 @@ export default function HomePage() {
         {loading && (
           <div className="flex justify-start">
             <div className="bg-gray-800/60 border border-gray-700/40 rounded-2xl px-4 py-3">
-              <p className="text-sm text-gray-400 animate-pulse">Thinking...</p>
+              <p className="text-sm text-gray-400 animate-pulse">Analyzing…</p>
             </div>
           </div>
         )}
@@ -274,40 +165,26 @@ export default function HomePage() {
 
       {/* ---- Image preview bar ---- */}
       {imagePreview && (
-        <div className="px-4 py-2 border-t border-gray-800 space-y-2">
+        <div className="px-4 py-2 border-t border-gray-800">
           <div className="flex items-center gap-3">
-          <img
-            src={imagePreview}
-            alt="preview"
-            className="h-12 w-12 rounded-lg object-cover"
-          />
-          <span className="text-xs text-gray-400 flex-1">Image attached</span>
-          <button
-            onClick={clearImage}
-            className="text-red-400 text-xs hover:text-red-300"
-          >
-            Remove
-          </button>
-          </div>
-          <div>
-            <label htmlFor="food-hint" className="block text-xs text-gray-400 mb-1">
-              Describe your food (optional)
-            </label>
-            <input
-              id="food-hint"
-              className="w-full bg-gray-800 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:outline-none focus:border-emerald-500 transition"
-              placeholder="e.g., Homemade chocolate cupcake"
-              value={foodHint}
-              onChange={(e) => setFoodHint(e.target.value)}
-              disabled={loading}
+            <img
+              src={imagePreview}
+              alt="preview"
+              className="h-12 w-12 rounded-lg object-cover"
             />
+            <span className="text-xs text-gray-400 flex-1">Image attached — AI will detect type automatically</span>
+            <button
+              onClick={clearImage}
+              className="text-red-400 text-xs hover:text-red-300"
+            >
+              Remove
+            </button>
           </div>
         </div>
       )}
 
       {/* ---- Input bar ---- */}
       <div className="px-4 py-3 border-t border-gray-800 flex items-center gap-2">
-        {/* Hidden file input */}
         <input
           ref={fileRef}
           type="file"
@@ -318,9 +195,8 @@ export default function HomePage() {
         <button
           onClick={() => fileRef.current?.click()}
           className="bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg p-2 transition"
-          title="Upload food image"
+          title="Upload image"
         >
-          {/* Camera / image icon (inline SVG) */}
           <svg
             xmlns="http://www.w3.org/2000/svg"
             className="h-5 w-5 text-gray-400"
@@ -341,8 +217,8 @@ export default function HomePage() {
           className="flex-1 bg-gray-800 rounded-lg px-4 py-2.5 text-sm border border-gray-700 focus:outline-none focus:border-emerald-500 transition"
           placeholder={
             imageFile
-              ? "Add a note (optional) and send..."
-              : "Ask about travel safety (e.g. Can I fly?)"
+              ? "Add a message (optional) and send…"
+              : "Ask about travel safety, or upload an image…"
           }
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -370,3 +246,4 @@ export default function HomePage() {
     </div>
   );
 }
+

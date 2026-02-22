@@ -10,6 +10,24 @@ from typing import List, Dict
 from openai import OpenAI
 
 
+CLASSIFICATION_SYSTEM_PROMPT = """You are a medical image classifier.
+
+Look at the provided image and optional user message.
+Determine if the image shows:
+- "food": any food items, meals, drinks, or food-related content
+- "prescription": a medical prescription, doctor's note, medicine label, or drug information
+- "unknown": anything else (unclear, non-medical content, etc.)
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "type": "food" | "prescription" | "unknown",
+  "confidence": 0.0-1.0
+}
+
+Do not include any text outside the JSON.
+"""
+
+
 SYSTEM_PROMPT = """You are a nutrition-aware food recognition AI.
 
 You will be given:
@@ -246,3 +264,57 @@ async def analyze_prescription_image(
 
     except Exception:
         return []
+
+
+async def classify_image(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+    user_message: str | None = None,
+) -> dict:
+    """
+    Stage 1 — Classify the image as food, prescription, or unknown.
+    Returns {"type": "food"|"prescription"|"unknown", "confidence": float}.
+    """
+    try:
+        client = get_openai_client()
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        context_text = (
+            f"User message: {user_message.strip()}"
+            if user_message and user_message.strip()
+            else "No additional context provided."
+        )
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": context_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+                        },
+                    ],
+                },
+            ],
+            max_tokens=100,
+            temperature=0.1,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            raw = raw.rsplit("```", 1)[0]
+
+        data = json.loads(raw)
+        image_type = data.get("type", "unknown")
+        if image_type not in ("food", "prescription", "unknown"):
+            image_type = "unknown"
+        confidence = float(data.get("confidence", 0.5))
+        return {"type": image_type, "confidence": confidence}
+
+    except Exception:
+        return {"type": "unknown", "confidence": 0.0}
