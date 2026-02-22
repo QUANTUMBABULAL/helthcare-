@@ -46,9 +46,13 @@ async def analyze_food(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid health_profile JSON")
 
+    normalized_food_hint = food_hint.strip() if isinstance(food_hint, str) else None
+    if normalized_food_hint == "":
+        normalized_food_hint = None
+
     # 🔹 Step 1: Vision AI — detect foods
     try:
-        detected_items = await analyze_food_image(image_bytes, mime, food_hint)
+        detected_items = await analyze_food_image(image_bytes, mime, normalized_food_hint)
     except Exception:
         detected_items = [
             {

@@ -7,7 +7,8 @@ import HealthProfileForm, {
 } from "@/components/HealthProfileForm";
 import FoodResult from "@/components/FoodResult";
 import TravelResult from "@/components/TravelResult";
-import { analyzeFoodImage, assessTravelRisk } from "@/lib/api";
+import PrescriptionResult from "@/components/PrescriptionResult";
+import { analyzeFoodImage, analyzePrescription, assessTravelRisk } from "@/lib/api";
 
 // ---------- Message types for the chat ----------
 type Message = {
@@ -34,9 +35,16 @@ export default function HomePage() {
   const [health, setHealth] = useState<HealthData>(DEFAULT_HEALTH);
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
+  const [prescriptionPreview, setPrescriptionPreview] = useState<string | null>(null);
+  const [prescriptionLocation, setPrescriptionLocation] = useState("");
+  const [prescriptionLoading, setPrescriptionLoading] = useState(false);
+  const [prescriptionData, setPrescriptionData] = useState<any | null>(null);
+  const [prescriptionError, setPrescriptionError] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const prescriptionFileRef = useRef<HTMLInputElement>(null);
   let nextId = useRef(1);
 
   // Auto-scroll to bottom on new messages
@@ -65,6 +73,39 @@ export default function HomePage() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
+  const onPrescriptionSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPrescriptionFile(file);
+    setPrescriptionPreview(URL.createObjectURL(file));
+    setPrescriptionError(null);
+  };
+
+  const clearPrescription = () => {
+    setPrescriptionFile(null);
+    setPrescriptionPreview(null);
+    if (prescriptionFileRef.current) prescriptionFileRef.current.value = "";
+  };
+
+  const handlePrescriptionCheck = async () => {
+    if (prescriptionLoading || !prescriptionFile) return;
+    setPrescriptionLoading(true);
+    setPrescriptionError(null);
+
+    try {
+      const data = await analyzePrescription(
+        prescriptionFile,
+        health,
+        prescriptionLocation.trim() || undefined
+      );
+      setPrescriptionData(data);
+    } catch (err: any) {
+      setPrescriptionError(err.message || "Failed to analyze prescription.");
+    } finally {
+      setPrescriptionLoading(false);
+    }
+  };
+
   // ---------- Send handler ----------
   const handleSend = async () => {
     if (loading) return;
@@ -72,7 +113,9 @@ export default function HomePage() {
 
     // If an image is attached, do food analysis
     if (imageFile) {
-      const hint = foodHint.trim();
+      const inlineHint = input.trim();
+      const panelHint = foodHint.trim();
+      const hint = panelHint || inlineHint;
       addMsg({ role: "user", text: hint || "Analyze this food", imageUrl: imagePreview! });
       clearImage();
       setInput("");
@@ -129,6 +172,63 @@ export default function HomePage() {
 
       {/* ---- Chat area ---- */}
       <div className="flex-1 overflow-y-auto chat-scroll px-4 py-4 space-y-4">
+        {/* ---- Prescription Check ---- */}
+        <div className="bg-gray-800/50 border border-gray-700/50 rounded-2xl p-4 space-y-3">
+          <h2 className="text-sm font-semibold">🧾 Prescription Check</h2>
+
+          <input
+            ref={prescriptionFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={onPrescriptionSelect}
+          />
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => prescriptionFileRef.current?.click()}
+              className="bg-gray-900 hover:bg-gray-700 border border-gray-700 rounded-lg px-3 py-2 text-xs transition"
+            >
+              Upload prescription image
+            </button>
+            {prescriptionFile && (
+              <button
+                onClick={clearPrescription}
+                className="text-red-400 text-xs hover:text-red-300"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+
+          {prescriptionPreview && (
+            <img
+              src={prescriptionPreview}
+              alt="prescription preview"
+              className="rounded-lg max-h-40 object-cover"
+            />
+          )}
+
+          <input
+            className="w-full bg-gray-900 rounded-lg px-3 py-2 text-sm border border-gray-700 focus:outline-none focus:border-emerald-500 transition"
+            placeholder="Location (optional, for pricing context)"
+            value={prescriptionLocation}
+            onChange={(e) => setPrescriptionLocation(e.target.value)}
+            disabled={prescriptionLoading}
+          />
+
+          <button
+            onClick={handlePrescriptionCheck}
+            disabled={!prescriptionFile || prescriptionLoading}
+            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg px-4 py-2 text-sm font-medium transition"
+          >
+            {prescriptionLoading ? "Analyzing..." : "Analyze Prescription"}
+          </button>
+
+          {prescriptionError && <p className="text-xs text-red-400">{prescriptionError}</p>}
+          {prescriptionData && <PrescriptionResult data={prescriptionData} />}
+        </div>
+
         {messages.map((msg) => (
           <div
             key={msg.id}

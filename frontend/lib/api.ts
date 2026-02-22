@@ -45,3 +45,27 @@ export async function assessTravelRisk(
   if (!res.ok) throw new Error(`Travel risk failed: ${res.statusText}`);
   return res.json();
 }
+
+/** POST /analyze-prescription — multipart form with prescription image + optional profile/location */
+export async function analyzePrescription(
+  imageFile: File,
+  healthProfile?: object,
+  location?: string
+) {
+  const form = new FormData();
+  form.append("image", imageFile);
+  if (healthProfile) {
+    form.append("health_profile", JSON.stringify(healthProfile));
+  }
+  if (location && location.trim().length > 0) {
+    form.append("location", location.trim());
+  }
+
+  const res = await fetch(`${API_BASE}/analyze-prescription`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) throw new Error(`Prescription analysis failed: ${res.statusText}`);
+  return res.json();
+}
