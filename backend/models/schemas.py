@@ -55,3 +55,40 @@ class TravelRiskResponse(BaseModel):
     risk_level: str         # LOW | MODERATE | HIGH
     advice: list[str]
     explanation: str
+
+
+# ---------- Prescription Recheck ----------
+
+class PrescriptionMedicineExtract(BaseModel):
+    name: str
+    dose: str
+    frequency: str
+    duration: str
+
+
+class PrescriptionMedicineResult(BaseModel):
+    name: str
+    dose: str
+    frequency: str
+    duration: str
+    warning_level: Literal["OK", "CAUTION", "AVOID"]
+    warning_reason: str
+    estimated_cost: float
+
+
+class PrescriptionAnalysisResponse(BaseModel):
+    medicines: list[PrescriptionMedicineResult]
+    total_estimated_cost: float
+    warnings: list[str]
+    disclaimer: str
+
+
+# ---------- Unified Analysis ----------
+
+class AnalyzeResponse(BaseModel):
+    """Unified response for POST /api/analyze."""
+    response_type: Literal["food", "prescription", "unknown"]
+    confidence: float
+    food: Optional[FoodAnalysisResponse] = None
+    prescription: Optional[PrescriptionAnalysisResponse] = None
+    message: Optional[str] = None

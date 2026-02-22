@@ -10,6 +10,24 @@ from typing import List, Dict
 from openai import OpenAI
 
 
+CLASSIFICATION_SYSTEM_PROMPT = """You are a medical image classifier.
+
+Look at the provided image and optional user message.
+Determine if the image shows:
+- "food": any food items, meals, drinks, or food-related content
+- "prescription": a medical prescription, doctor's note, medicine label, or drug information
+- "unknown": anything else (unclear, non-medical content, etc.)
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "type": "food" | "prescription" | "unknown",
+  "confidence": 0.0-1.0
+}
+
+Do not include any text outside the JSON.
+"""
+
+
 SYSTEM_PROMPT = """You are a nutrition-aware food recognition AI.
 
 You will be given:
@@ -37,6 +55,31 @@ Rules:
 }
 
 Do not include any text outside the JSON.
+"""
+
+
+PRESCRIPTION_SYSTEM_PROMPT = """You are a medical document reading assistant for prescriptions.
+
+Task:
+- Read the prescription image carefully.
+- Extract medicine names, dose, frequency, and duration.
+- Return only strict JSON with this structure:
+
+{
+    "medicines": [
+        {
+            "name": "Paracetamol",
+            "dose": "500 mg",
+            "frequency": "twice daily",
+            "duration": "5 days"
+        }
+    ]
+}
+
+Rules:
+- If unclear, keep best guess but do not fabricate too many medicines.
+- Use "not specified" for missing fields.
+- Do not return markdown or extra explanation.
 """
 
 
@@ -72,10 +115,14 @@ async def analyze_food_image(
                     "content": [
                         {
                             "type": "text",
+                            "text": "Identify the food items in this image and estimate calories for each."
+                        },
+                        {
+                            "type": "text",
                             "text": (
-                                "Identify the food items in this image and estimate calories for each."
+                                "No user description was provided."
                                 if not hint_text
-                                else f"Identify the food items in this image. User hint: {hint_text}"
+                                else f"User food description: {hint_text}. Prefer this hint when image is ambiguous."
                             )
                         },
                         {
@@ -135,3 +182,139 @@ async def analyze_food_image(
                 "estimated_calories": 250,
             }
         ]
+
+
+async def analyze_prescription_image(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+    location: str | None = None,
+) -> List[Dict]:
+    """
+    Sends a prescription image to GPT-4o Vision and returns extracted medicines.
+    """
+
+    try:
+        client = get_openai_client()
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        location_text = (location or "").strip()
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": PRESCRIPTION_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Extract all medicines from this prescription image."
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "Location context not provided."
+                                if not location_text
+                                else f"Location context for pricing: {location_text}"
+                            )
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{b64}"
+                            },
+                        },
+                    ],
+                },
+            ],
+            max_tokens=700,
+            temperature=0.1,
+        )
+
+        raw = response.choices[0].message.content.strip()
+
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            raw = raw.rsplit("```", 1)[0]
+
+        data = json.loads(raw)
+        medicines = data.get("medicines", [])
+        if not isinstance(medicines, list):
+            raise ValueError("Invalid medicines format from OpenAI")
+
+        normalized: List[Dict] = []
+        for med in medicines:
+            if not isinstance(med, dict):
+                continue
+            name = str(med.get("name", "Unknown medicine")).strip()
+            dose = str(med.get("dose", "not specified")).strip()
+            frequency = str(med.get("frequency", "not specified")).strip()
+            duration = str(med.get("duration", "not specified")).strip()
+            if not name:
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "dose": dose,
+                    "frequency": frequency,
+                    "duration": duration,
+                }
+            )
+
+        return normalized
+
+    except Exception:
+        return []
+
+
+async def classify_image(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+    user_message: str | None = None,
+) -> dict:
+    """
+    Stage 1 — Classify the image as food, prescription, or unknown.
+    Returns {"type": "food"|"prescription"|"unknown", "confidence": float}.
+    """
+    try:
+        client = get_openai_client()
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+
+        context_text = (
+            f"User message: {user_message.strip()}"
+            if user_message and user_message.strip()
+            else "No additional context provided."
+        )
+
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": context_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+                        },
+                    ],
+                },
+            ],
+            max_tokens=100,
+            temperature=0.1,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            raw = raw.rsplit("```", 1)[0]
+
+        data = json.loads(raw)
+        image_type = data.get("type", "unknown")
+        if image_type not in ("food", "prescription", "unknown"):
+            image_type = "unknown"
+        confidence = float(data.get("confidence", 0.5))
+        return {"type": image_type, "confidence": confidence}
+
+    except Exception:
+        return {"type": "unknown", "confidence": 0.0}

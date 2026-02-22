@@ -4,6 +4,28 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
+/** POST /analyze — unified multipart: image + optional user_message + health profile */
+export async function analyzeImage(
+  imageFile: File,
+  healthProfile: object,
+  userMessage?: string
+) {
+  const form = new FormData();
+  form.append("image", imageFile);
+  form.append("health_profile", JSON.stringify(healthProfile));
+  if (userMessage && userMessage.trim().length > 0) {
+    form.append("user_message", userMessage.trim());
+  }
+
+  const res = await fetch(`${API_BASE}/analyze`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) throw new Error(`Analysis failed: ${res.statusText}`);
+  return res.json();
+}
+
 /** POST /analyze-food-image — multipart form with image + health profile JSON */
 export async function analyzeFoodImage(
   imageFile: File,
@@ -43,5 +65,29 @@ export async function assessTravelRisk(
   });
 
   if (!res.ok) throw new Error(`Travel risk failed: ${res.statusText}`);
+  return res.json();
+}
+
+/** POST /analyze-prescription — multipart form with prescription image + optional profile/location */
+export async function analyzePrescription(
+  imageFile: File,
+  healthProfile?: object,
+  location?: string
+) {
+  const form = new FormData();
+  form.append("image", imageFile);
+  if (healthProfile) {
+    form.append("health_profile", JSON.stringify(healthProfile));
+  }
+  if (location && location.trim().length > 0) {
+    form.append("location", location.trim());
+  }
+
+  const res = await fetch(`${API_BASE}/analyze-prescription`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) throw new Error(`Prescription analysis failed: ${res.statusText}`);
   return res.json();
 }
